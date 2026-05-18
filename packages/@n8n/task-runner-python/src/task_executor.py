@@ -6,6 +6,7 @@ import io
 import os
 import sys
 import logging
+from typing import cast
 
 from src.errors import (
     TaskCancelledError,
@@ -36,7 +37,6 @@ from src.constants import (
     SIGTERM_EXIT_CODE,
     SIGKILL_EXIT_CODE,
     PIPE_MSG_PREFIX_LENGTH,
-    LOG_PIPE_READER_TIMEOUT_TRIGGERED,
 )
 
 from multiprocessing.context import ForkServerProcess
@@ -91,7 +91,6 @@ class TaskExecutor:
         read_conn: PipeConnection,
         write_conn: PipeConnection,
         task_timeout: int,
-        pipe_reader_timeout: float,
         continue_on_fail: bool,
     ) -> tuple[Items, PrintArgs, int]:
         """Execute a subprocess for a Python code task."""
@@ -125,18 +124,16 @@ class TaskExecutor:
                 assert process.exitcode is not None
                 raise TaskSubprocessFailedError(process.exitcode)
 
-            pipe_reader.join(timeout=pipe_reader_timeout)
+            pipe_reader.join(timeout=task_timeout)
 
             if pipe_reader.is_alive():
-                logger.warning(
-                    LOG_PIPE_READER_TIMEOUT_TRIGGERED.format(
-                        timeout=pipe_reader_timeout
-                    )
-                )
                 try:
                     read_conn.close()
                 except Exception:
                     pass
+                raise TaskResultReadError(
+                    TimeoutError(f"Pipe reader timed out after {task_timeout}s")
+                )
 
             if pipe_reader.error:
                 raise TaskResultReadError(pipe_reader.error)
@@ -147,13 +144,15 @@ class TaskExecutor:
             returned = pipe_reader.pipe_message
 
             if "error" in returned:
-                raise TaskRuntimeError(returned["error"])
+                error_msg = cast(PipeErrorMessage, returned)
+                raise TaskRuntimeError(error_msg["error"])
 
             if "result" not in returned:
                 raise TaskResultMissingError()
 
-            result = returned["result"]
-            print_args = returned.get("print_args", [])
+            result_msg = cast(PipeResultMessage, returned)
+            result = result_msg["result"]
+            print_args = result_msg.get("print_args", [])
             assert pipe_reader.message_size is not None
             result_size_bytes = pipe_reader.message_size
 
@@ -213,7 +212,7 @@ class TaskExecutor:
 
             exec(compiled_code, globals)
 
-            result = globals[EXECUTOR_USER_OUTPUT_KEY]
+            result = cast(Items, globals[EXECUTOR_USER_OUTPUT_KEY])
             TaskExecutor._put_result(write_conn.fileno(), result, print_args)
 
         except BaseException as e:
@@ -436,7 +435,49 @@ class TaskExecutor:
 
         filtered["__import__"] = TaskExecutor._create_safe_import(security_config)
 
-        return filtered
+        class _ImmutableBuiltins:
+            __slots__ = ()
+
+            def __getitem__(self, key):
+                return filtered[key]
+
+            def __contains__(self, key):
+                return key in filtered
+
+            def __iter__(self):
+                return iter(filtered)
+
+            def __len__(self):
+                return len(filtered)
+
+            def keys(self):
+                return filtered.keys()
+
+            def values(self):
+                return filtered.values()
+
+            def items(self):
+                return filtered.items()
+
+            def get(self, key, default=None):
+                return filtered.get(key, default)
+
+            def __getattr__(self, name):
+                try:
+                    return filtered[name]
+                except KeyError:
+                    raise AttributeError(name) from None
+
+            def __setattr__(self, name, value):
+                raise AttributeError("read-only")
+
+            def __delattr__(self, name):
+                raise AttributeError("read-only")
+
+            def __repr__(self):
+                return f"ImmutableBuiltins({len(filtered)} keys)"
+
+        return _ImmutableBuiltins()
 
     @staticmethod
     def _sanitize_sys_modules(security_config: SecurityConfig):

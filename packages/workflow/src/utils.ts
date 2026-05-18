@@ -4,6 +4,7 @@ import type { Node as SyntaxNode, ExpressionStatement } from 'esprima-next';
 import FormData from 'form-data';
 import { jsonrepair } from 'jsonrepair';
 import merge from 'lodash/merge';
+import path from 'path';
 
 import { ALPHABET } from './constants';
 import { ManualExecutionCancelledError } from './errors/execution-cancelled.error';
@@ -371,7 +372,19 @@ const unsafeObjectProperties = new Set([
 	'getPrototypeOf',
 	'mainModule',
 	'binding',
+	'_linkedBinding',
 	'_load',
+	'prepareStackTrace',
+	'__lookupGetter__',
+	'__lookupSetter__',
+	'__defineGetter__',
+	'__defineSetter__',
+	'caller',
+	'arguments',
+	'getBuiltinModule',
+	'dlopen',
+	'execve',
+	'loadEnvFile',
 ]);
 
 /**
@@ -397,6 +410,14 @@ export function setSafeObjectProperty(
 	if (isSafeObjectProperty(property)) {
 		target[property] = value;
 	}
+}
+
+const DANGEROUS_XML_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
+
+export function sanitizeXmlName(name: string) {
+	if (DANGEROUS_XML_NAMES.has(name)) return `sanitized_${name}`;
+
+	return name;
 }
 
 export function isDomainAllowed(
@@ -451,6 +472,27 @@ export function isDomainAllowed(
 	}
 }
 
+/**
+ * Extracts the allow-listed domains configured on a credential via the
+ * `allowedHttpRequestDomains` + `allowedDomains` properties.
+ *
+ * Returns the comma-separated allow-list string when the credential is in
+ * 'domains' mode with a non-empty list, otherwise `undefined`. Callers that
+ * need to reject 'none' mode or an empty 'domains' list must handle that
+ * explicitly.
+ */
+export function getCredentialAllowedDomains(
+	credentialData: Record<string, unknown> | undefined,
+): string | undefined {
+	if (!credentialData || credentialData.allowedHttpRequestDomains !== 'domains') {
+		return undefined;
+	}
+	const allowedDomains = credentialData.allowedDomains;
+	if (typeof allowedDomains !== 'string') return undefined;
+	const trimmed = allowedDomains.trim();
+	return trimmed === '' ? undefined : trimmed;
+}
+
 const COMMUNITY_PACKAGE_NAME_REGEX = /^(?!@n8n\/)(@[\w.-]+\/)?n8n-nodes-(?!base\b)\b\w+/g;
 
 export function isCommunityPackageName(packageName: string): boolean {
@@ -463,4 +505,44 @@ export function isCommunityPackageName(packageName: string): boolean {
 
 export function dedupe<T>(arr: T[]): T[] {
 	return [...new Set(arr)];
+}
+
+/**
+ * Extracts a safe filename from a path or filename string.
+ *
+ * Handles both Unix and Windows path separators, removing directory
+ * components and null bytes to return just the filename.
+ *
+ * @param fileName - The filename or path to sanitize
+ * @returns The extracted filename without path components
+ *
+ * @example
+ * sanitizeFilename('path/to/file.txt') // returns 'file.txt'
+ * sanitizeFilename('/tmp/upload/doc.pdf') // returns 'doc.pdf'
+ * sanitizeFilename('C:\\Users\\file.txt') // returns 'file.txt'
+ * sanitizeFilename('../../../etc/passwd') // returns 'passwd'
+ */
+export function sanitizeFilename(fileName: string): string {
+	// Normalize to forward slashes first to handle Windows paths on Unix
+	const normalized = fileName.replace(/\\/g, '/');
+
+	// Extract just the filename, stripping all directory components
+	let sanitized = path.basename(normalized);
+
+	// Remove null bytes which could be used for null byte injection attacks
+	sanitized = sanitized.replace(/\0/g, '');
+
+	// If the result is empty or just dots, use a default name
+	if (!sanitized || /^\.+$/.test(sanitized)) {
+		sanitized = 'untitled';
+	}
+
+	return sanitized;
+}
+
+/** Generates a cryptographically secure 64-character hex token (256 bits). */
+export function generateSecureToken(): string {
+	const bytes = new Uint8Array(32);
+	crypto.getRandomValues(bytes);
+	return bytes.reduce((hex, byte) => hex + byte.toString(16).padStart(2, '0'), '');
 }

@@ -1,49 +1,38 @@
-ARG NODE_VERSION=22.21.1
+ARG NODE_VERSION=24.15.0
 
-# ==============================================================================
-# STAGE 1: Builder for Base Dependencies
-# ==============================================================================
-FROM node:${NODE_VERSION}-alpine AS builder
+FROM dhi.io/node:${NODE_VERSION}-alpine3.23-dev
 
-# Install fonts
-RUN \
-  apk --no-cache add --virtual .build-deps-fonts msttcorefonts-installer fontconfig && \
-  update-ms-fonts && \
-  fc-cache -f && \
-  apk del .build-deps-fonts && \
-  find /usr/share/fonts/truetype/msttcorefonts/ -type l -exec unlink {} \;
+ARG NODE_VERSION
 
-# Install essential OS dependencies
-RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.22/main" >> /etc/apk/repositories && \
-    echo "https://dl-cdn.alpinelinux.org/alpine/v3.22/community" >> /etc/apk/repositories && \
-    apk update && \
-    apk upgrade --no-cache && \
-    apk add --no-cache libxml2 && \
+# Install all dependencies in a single layer to minimize image size.
+# DHI's alpine3.23-dev base already provides /bin/sh (via its bundled busybox)
+# and git; we don't reinstall them. Reinstalling busybox-binsh from alpine
+# community pins it to a busybox release that conflicts with DHI's git
+# snapshot version, breaking the build whenever alpine bumps the rebuild.
+RUN apk --no-cache add --virtual .build-deps-fonts msttcorefonts-installer fontconfig && \
+    update-ms-fonts && \
+    fc-cache -f && \
+    apk del .build-deps-fonts && \
+    find /usr/share/fonts/truetype/msttcorefonts/ -type l -exec unlink {} \; && \
+    # Install OS dependencies (git is already in the DHI base). `apk upgrade`
+    # is intentionally omitted: DHI ships vetted pinned versions, and trying
+    # to upgrade can race with alpine repo refreshes (e.g. libssl3 bumped
+    # without a matching openssl rebuild) and break the build.
     apk add --no-cache \
-        git \
         openssh \
         openssl \
-        graphicsmagick \
+        graphicsmagick=1.3.46-r0 `# pinned for build reproducibility` \
         tini \
         tzdata \
         ca-certificates \
-        libc6-compat \
-        jq
-
-# Install full-icu
-RUN npm install -g full-icu@1.5.0
-
-RUN rm -rf /tmp/* /root/.npm /root/.cache/node
-
-# ==============================================================================
-# STAGE 2: Final Base Runtime Image
-# ==============================================================================
-FROM node:${NODE_VERSION}-alpine
-
-COPY --from=builder / /
-
-RUN rm -rf /opt/yarn* && apk del apk-tools
+        libc6-compat && \
+    # Cleanup
+    rm -rf /tmp/* /root/.npm /root/.cache/node /opt/yarn* && \
+    apk del apk-tools
 
 WORKDIR /home/node
-ENV NODE_ICU_DATA=/usr/local/lib/node_modules/full-icu
+# npm prefix -g is /usr/local but node's built-in search path is /usr/lib/node_modules.
+# Bridge the two so users extending this image with `RUN npm install -g <pkg>` can
+# `require(<pkg>)` from a Function/Code node at runtime (gh #24191).
+ENV NODE_PATH=/usr/local/lib/node_modules
 EXPOSE 5678/tcp

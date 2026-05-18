@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, ref } from 'vue';
+import { computed, watch, ref, useCssModule } from 'vue';
 import type { INodeCreateElement } from '@/Interface';
 
 import { useWorkflowsStore } from '@/app/stores/workflows.store';
@@ -20,6 +20,8 @@ export interface Props {
 	isTriggerCategory?: boolean;
 	mouseOverTooltip?: string;
 	expanded?: boolean;
+	showSeparator?: boolean;
+	hideHeader?: boolean;
 }
 
 import { useI18n } from '@n8n/i18n';
@@ -57,6 +59,13 @@ function setExpanded(isExpanded: boolean) {
 		});
 	}
 }
+
+const $style = useCssModule();
+const containerClasses = computed(() => ({
+	[$style.categorizedItemsRenderer]: true,
+	[$style.separator]: expanded.value && props.showSeparator,
+	[$style.headerless]: props.hideHeader,
+}));
 
 function arrowRight() {
 	if (expanded.value) return;
@@ -99,8 +108,9 @@ registerKeyHook(`CategoryLeft_${props.category}`, {
 </script>
 
 <template>
-	<div :class="$style.categorizedItemsRenderer" :data-category-collapsed="!expanded">
+	<div :class="containerClasses" :data-category-collapsed="!expanded">
 		<CategoryItem
+			v-if="!hideHeader"
 			:class="$style.categoryItem"
 			:name="category"
 			:disabled="disabled"
@@ -113,7 +123,7 @@ registerKeyHook(`CategoryLeft_${props.category}`, {
 			@click="toggleExpanded"
 		>
 			<span v-if="mouseOverTooltip" :class="$style.mouseOverTooltip">
-				<N8nTooltip placement="top" :popper-class="$style.tooltipPopper">
+				<N8nTooltip placement="top" :content-class="$style.tooltipPopper">
 					<N8nIcon icon="circle-help" size="small" />
 					<template #content>
 						<div v-n8n-html="mouseOverTooltip" />
@@ -169,6 +179,12 @@ registerKeyHook(`CategoryLeft_${props.category}`, {
 }
 .categorizedItemsRenderer {
 	padding-bottom: var(--spacing--sm);
+}
+.headerless {
+	padding-bottom: 0;
+}
+.separator {
+	border-bottom: 1px solid var(--color--foreground);
 }
 .preview {
 	opacity: 0.7;

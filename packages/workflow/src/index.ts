@@ -16,23 +16,28 @@ export * from './interfaces';
 export * from './run-execution-data-factory';
 export * from './message-event-bus';
 export * from './execution-status';
+export * from './trimmed-task-data';
 export * from './expression';
 export * from './expressions/expression-helpers';
 export * from './from-ai-parse-utils';
 export * from './node-helpers';
+export * from './node-validation';
 export * from './tool-helpers';
 export * from './node-reference-parser-utils';
 export * from './metadata-utils';
+export * from './highlighted-data';
 export * from './workflow';
 export * from './workflow-checksum';
 export * from './workflow-data-proxy';
 export * from './workflow-data-proxy-env-provider';
 export * from './workflow-validation';
+export * from './workflow-structure-validation';
 export * from './versioned-node-type';
 export * from './type-validation';
 export * from './result';
 export * from './schemas';
 export * from './run-execution-data/run-execution-data';
+export { WorkflowExpression } from './workflow-expression';
 export { LoggerProxy, NodeHelpers, ObservableObject, TelemetryHelpers };
 export {
 	isObjectEmpty,
@@ -52,8 +57,12 @@ export {
 	isSafeObjectProperty,
 	setSafeObjectProperty,
 	isDomainAllowed,
+	getCredentialAllowedDomains,
 	isCommunityPackageName,
 	dedupe,
+	sanitizeFilename,
+	sanitizeXmlName,
+	generateSecureToken,
 } from './utils';
 export {
 	isINodeProperties,
@@ -66,6 +75,7 @@ export {
 	isResourceLocatorValue,
 	isFilterValue,
 	isNodeConnectionType,
+	isBinaryValue,
 } from './type-guards';
 
 export {
@@ -80,9 +90,11 @@ export * as ExpressionParser from './extensions/expression-parser';
 export { NativeMethods } from './native-methods';
 export * from './node-parameters/filter-parameter';
 export * from './node-parameters/parameter-type-validation';
+export * from './node-parameters/node-parameter-value-type-guard';
 export * from './node-parameters/path-utils';
 export * from './evaluation-helpers';
 export * from './workflow-diff';
+export * from './workflow-environments-helper';
 
 export type {
 	DocMetadata,
